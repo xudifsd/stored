@@ -1,0 +1,5 @@
+src/main/java/org/xudifsd/stored/thrift/
+.idea/
+target/
+*.iml
+*.class
