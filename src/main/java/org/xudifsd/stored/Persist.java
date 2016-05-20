@@ -47,6 +47,7 @@ public class Persist {
             if (votedForFile.exists()) {
                 votedForFile.delete();
             }
+            return;
         } // else {
         if (votedFor.contains("\n")) {
             throw new RuntimeException("votedFor could not contains newline");
