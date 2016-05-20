@@ -4,13 +4,13 @@ import junit.framework.Test;
 import junit.framework.TestCase;
 import junit.framework.TestSuite;
 
-public class StateMachineTest extends TestCase {
-    public StateMachineTest(String testName) {
+public class RaftReactorTest extends TestCase {
+    public RaftReactorTest(String testName) {
         super(testName);
     }
 
     public static Test suite() {
-        return new TestSuite(StateMachineTest.class);
+        return new TestSuite(RaftReactorTest.class);
     }
 
     public void testApp() {
