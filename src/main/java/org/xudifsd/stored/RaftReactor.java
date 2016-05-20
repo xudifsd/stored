@@ -2,9 +2,12 @@ package org.xudifsd.stored;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.xudifsd.stored.rpc.RPCHandler;
+import org.xudifsd.stored.rpc.RPCServer;
 
 public class RaftReactor {
     private static final Logger LOG = LoggerFactory.getLogger(RaftReactor.class);
+    public static final int serverPort = 12345;
 
     private RaftReactorState state = RaftReactorState.FOLLOWER;
     private Persist persist;
@@ -32,6 +35,9 @@ public class RaftReactor {
 
         // start
         LOG.info("should start from now on, members is {}", members);
+        RPCServer server = new RPCServer(new RPCHandler(), serverPort);
+        server.start(1);
+        server.stop();
     }
 
     public static void main(String[] args) throws Exception {
