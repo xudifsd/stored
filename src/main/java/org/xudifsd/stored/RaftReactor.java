@@ -8,7 +8,10 @@ import org.xudifsd.stored.rpc.RPCHandler;
 import org.xudifsd.stored.rpc.RPCServer;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -17,12 +20,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class RaftReactor {
     private static final Logger LOG = LoggerFactory.getLogger(RaftReactor.class);
-    public static final int SERVER_PORT = 12345;
     public static final int LEADER_HEARTBEAT_INTERVAL_MS = 1000;
 
     private AtomicReference<RaftReactorState> state = new AtomicReference<RaftReactorState>(RaftReactorState.FOLLOWER);
-    private String[] members;
     private ConcurrentLinkedQueue<StateObserver> observers = new ConcurrentLinkedQueue<StateObserver>();
+    private InetSocketAddress[] members;
+    private int serverPort;
     private QuorumProxy proxy;
     private ScheduledThreadPoolExecutor executor;
     private StateMachine stateMachine;
@@ -45,6 +48,7 @@ public class RaftReactor {
     public synchronized void changeState(long term, String votedFor, RaftReactorState state) throws IOException {
         persist.writeCurrentTerm(term);
         persist.writeVotedFor(votedFor);
+        this.state.set(state);
         for (StateObserver observer : observers) {
             observer.stateChanged(state);
         }
@@ -52,11 +56,15 @@ public class RaftReactor {
 
     public void run(String[] args) throws Exception {
         if (args.length < 2) {
-            throw new IllegalArgumentException("must supply a path and set of host:port tuples");
+            throw new IllegalArgumentException("must supply a path, port, and set of host:port tuples");
         }
-        members = new String[args.length - 1];
-        for (int i = 1; i < args.length; ++i) {
-            members[i - 1] = args[i];
+        members = new InetSocketAddress[args.length - 2];
+        for (int i = 2; i < args.length; ++i) {
+            String[] r = args[i].split(":");
+            if (r.length != 2) {
+                throw new IllegalArgumentException("unknown host:port pair: " + args[i]);
+            }
+            members[i - 2] = new InetSocketAddress(InetAddress.getByName(r[0]), Integer.valueOf(r[1]));
         }
 
         stateMachine = new MemoryKeyValueStateMachine();
@@ -64,8 +72,10 @@ public class RaftReactor {
         persist = new Persist(args[0]);
         persist.restore(stateMachine);
 
-        RPCServer server = new RPCServer(new RPCHandler(this), SERVER_PORT);
-        proxy = new QuorumProxy();
+        serverPort = Integer.valueOf(args[1]);
+
+        RPCServer server = new RPCServer(new RPCHandler(this), serverPort);
+        proxy = new QuorumProxy(members);
 
         this.registerObserver(new StateLogger(getState()));
         this.registerObserver(proxy);
@@ -75,7 +85,7 @@ public class RaftReactor {
                 LEADER_HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
 
         // start
-        LOG.info("should start from now on, members is {}", members);
+        LOG.info("should start from now on, members is {}", Arrays.asList(members));
 
         server.start(1);
         Thread.sleep(3000); // without this, we can not shutdown properly

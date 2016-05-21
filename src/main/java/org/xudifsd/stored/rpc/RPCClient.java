@@ -8,18 +8,17 @@ import org.apache.thrift.transport.TTransport;
 
 import org.xudifsd.stored.thrift.RaftProtocol;
 
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.List;
 
 public class RPCClient {
-    public final String ip;
-    public final int port;
+    public final InetSocketAddress address;
 
     // TODO add pool support
 
-    public RPCClient(String ip, int port) {
-        this.ip = ip;
-        this.port = port;
+    public RPCClient(InetSocketAddress address) {
+        this.address = address;
     }
 
     public static AppendEntriesResp convert2LocalAppendEntriesResp(org.xudifsd.stored.thrift.AppendEntriesResp resp) {
@@ -32,7 +31,7 @@ public class RPCClient {
 
     public AppendEntriesResp appendEntries(long term, String leaderId, long prevLogIndex, long prevLogTerm,
                                            List<ByteBuffer> entries, long leaderCommit) throws TException {
-        TTransport transport = new TSocket(ip, port);
+        TTransport transport = new TSocket(address.getHostName(), address.getPort());
         TProtocol protocol = new TBinaryProtocol(transport);
         RaftProtocol.Client client = new RaftProtocol.Client(protocol);
         transport.open();
@@ -42,7 +41,7 @@ public class RPCClient {
 
     public RequestVoteResp requestVote(long term, String candidateId, long lastLogIndex, long lastLogTerm)
             throws TException {
-        TTransport transport = new TSocket(ip, port);
+        TTransport transport = new TSocket(address.getHostName(), address.getPort());
         TProtocol protocol = new TBinaryProtocol(transport);
         RaftProtocol.Client client = new RaftProtocol.Client(protocol);
         transport.open();

@@ -1,5 +1,7 @@
 package org.xudifsd.stored.example;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.xudifsd.stored.StateMachine;
 
 import java.nio.ByteBuffer;
@@ -13,6 +15,8 @@ import java.util.List;
  * value should not contains newline
  * */
 public class MemoryKeyValueStateMachine implements StateMachine {
+    private static final Logger LOG = LoggerFactory.getLogger(MemoryKeyValueStateMachine.class);
+
     private static Charset charset = Charset.forName("UTF-8");
     private static byte[] getOpByte = "GET ".getBytes();
     private static byte[] setOpByte = "SET ".getBytes();
@@ -126,12 +130,15 @@ public class MemoryKeyValueStateMachine implements StateMachine {
 
             if (op == Op.GET) {
                 String value = map.get(KV[0]);
+                LOG.debug("GET {}, result is {}", KV[0], value);
                 buffer = ByteBuffer.wrap(serializeResult(value));
             } else if (op == Op.SET) {
                 map.put(KV[0], KV[1]);
+                LOG.debug("SET {} -> {}", KV[0], KV[1]);
                 buffer = ByteBuffer.wrap(serializeResult(null));
             } else {
                 map.remove(KV[0]);
+                LOG.debug("DELETE {}", KV[0]);
                 buffer = ByteBuffer.wrap(serializeResult(null));
             }
             result.add(buffer);

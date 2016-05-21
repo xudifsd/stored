@@ -2,7 +2,9 @@ package org.xudifsd.stored;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.xudifsd.stored.rpc.RPCClient;
 
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,6 +15,9 @@ import java.util.concurrent.atomic.AtomicReference;
 public class QuorumProxy implements Runnable, StateObserver {
     private static final Logger LOG = LoggerFactory.getLogger(QuorumProxy.class);
 
+    private final InetSocketAddress[] members;
+    private final RPCClient[] clients;
+
     public static final int CALLBACK_CAP = 100;
     public static final int APPEND_ENTRIES_TIMEOUT_MS = 1000;
 
@@ -22,10 +27,16 @@ public class QuorumProxy implements Runnable, StateObserver {
     private int count = 0;
     private BlockingQueue<Boolean> callback;
 
-    public QuorumProxy() {
+    public QuorumProxy(InetSocketAddress[] addresses) {
         this.entries = new ArrayList<ByteBuffer>();
         this.callback = new ArrayBlockingQueue<Boolean>(CALLBACK_CAP);
         this.state = new AtomicReference<RaftReactorState>(RaftReactorState.FOLLOWER);
+        this.members = addresses;
+        this.clients = new RPCClient[members.length];
+
+        for (int i = 0; i < members.length; ++i) {
+            this.clients[i] = new RPCClient(members[i]);
+        }
     }
 
     /*
@@ -33,15 +44,15 @@ public class QuorumProxy implements Runnable, StateObserver {
     * half of quorum stored entries persistently
     */
     public boolean commit(List<ByteBuffer> entries) {
-        BlockingQueue<Boolean> callback = null;
+        BlockingQueue<Boolean> callback;
         synchronized (this) {
             count += 1;
             /*
             * We have to ensure no other threads can add to entries, when we get whole
             * list swapped in run(), this can not simply be done via AtomicReference
             * */
-            entries.addAll(entries);
-            this.callback = callback;
+            this.entries.addAll(entries);
+            callback = this.callback;
         }
         try {
             return callback.take();
