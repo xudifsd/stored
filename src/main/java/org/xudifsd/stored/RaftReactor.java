@@ -83,7 +83,7 @@ public class RaftReactor {
         executor.shutdown();
     }
 
-    /*
+    /**
     * Caller would block in this call, result is returned via out, if out is null,
     * it means caller does not care outcome. Returned value indicate this execution
     * is success or not, on returning false, out is not modified.
