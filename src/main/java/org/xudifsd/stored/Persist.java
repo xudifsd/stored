@@ -58,7 +58,7 @@ public class Persist {
         writer.close();
     }
 
-    public void restore() throws IOException {
+    public void restore(StateMachine stateMachine) throws IOException {
         File dir = new File(dirPath);
         if (!dir.isDirectory()) {
             throw new RuntimeException(dirPath + " is not a directory");
@@ -81,5 +81,7 @@ public class Persist {
             votedFor = in.readLine();
             in.close();
         }
+
+        // TODO apply persisted log to stateMachine
     }
 }

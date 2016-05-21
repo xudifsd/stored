@@ -2,11 +2,16 @@ package org.xudifsd.stored;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.xudifsd.stored.example.MemoryKeyValueStateMachine;
 import org.xudifsd.stored.rpc.RPCHandler;
 import org.xudifsd.stored.rpc.RPCServer;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class RaftReactor {
@@ -17,6 +22,9 @@ public class RaftReactor {
     private AtomicReference<RaftReactorState> state = new AtomicReference<RaftReactorState>(RaftReactorState.FOLLOWER);
     private String[] members;
     private ConcurrentLinkedQueue<StateObserver> observers = new ConcurrentLinkedQueue<StateObserver>();
+    private QuorumProxy proxy;
+    private ScheduledThreadPoolExecutor executor;
+    private StateMachine stateMachine;
 
     private Persist persist;
 
@@ -28,6 +36,7 @@ public class RaftReactor {
     private long[] nextIndex;
     private long[] matchIndex;
 
+    // user could use this method to do leader election
     public void registerObserver(StateObserver observer) {
         observers.add(observer);
     }
@@ -48,17 +57,53 @@ public class RaftReactor {
         for (int i = 1; i < args.length; ++i) {
             members[i - 1] = args[i];
         }
+
+        stateMachine = new MemoryKeyValueStateMachine();
+
         persist = new Persist(args[0]);
-        persist.restore();
+        persist.restore(stateMachine);
+
+        RPCServer server = new RPCServer(new RPCHandler(this), SERVER_PORT);
+        proxy = new QuorumProxy();
+
+        this.registerObserver(new StateLogger(getState()));
+        this.registerObserver(proxy);
+
+        executor = new ScheduledThreadPoolExecutor(1);
+        executor.scheduleAtFixedRate(proxy, LEADER_HEARTBEAT_INTERVAL_MS,
+                LEADER_HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
 
         // start
         LOG.info("should start from now on, members is {}", members);
-        RPCServer server = new RPCServer(new RPCHandler(this), SERVER_PORT);
-        this.registerObserver(new StateLogger(getState()));
 
         server.start(1);
         Thread.sleep(3000); // without this, we can not shutdown properly
+        // TODO call execute here
         server.stop();
+        executor.shutdown();
+    }
+
+    /*
+    * Caller would block in this call, result is returned via out, if out is null,
+    * it means caller does not care outcome. Returned value indicate this execution
+    * is success or not, on returning false, out is not modified.
+    * */
+    public boolean execute(List<ByteBuffer> in, List<ByteBuffer> out) {
+        if (state.get() == RaftReactorState.LEADER) {
+            boolean result = proxy.commit(in);
+            if (result) {
+                // we do not persist in here, because we store it in proxy
+
+                // FIXME what if stateMachine throw exception?
+                List<ByteBuffer> stateMachineOut = stateMachine.apply(in);
+                if (out != null) {
+                    out.addAll(stateMachineOut);
+                }
+            }
+            return result;
+        } else {
+            return false;
+        }
     }
 
     public RaftReactorState getState() {
