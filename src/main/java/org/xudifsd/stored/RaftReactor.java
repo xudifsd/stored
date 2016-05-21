@@ -2,6 +2,7 @@ package org.xudifsd.stored;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.xudifsd.stored.example.MemoryKeyValueStateMachine;
 import org.xudifsd.stored.rpc.RPCHandler;
 import org.xudifsd.stored.rpc.RPCServer;

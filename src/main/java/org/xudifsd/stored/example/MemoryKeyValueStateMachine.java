@@ -63,7 +63,7 @@ public class MemoryKeyValueStateMachine implements StateMachine {
         if (KV.length != 2) {
             throw new IllegalArgumentException("KV should has two slots");
         }
-        String[] result = op.split(" ", 1);
+        String[] result = op.split(" ", 2);
         if (result.length != 2) {
             throw new IllegalArgumentException("illegal format");
         } // else {
@@ -73,7 +73,7 @@ public class MemoryKeyValueStateMachine implements StateMachine {
             KV[0] = result[1];
         } else if (result[0].equals("SET")) {
             r = Op.SET;
-            String[] result2 = result[1].split(" ", 1);
+            String[] result2 = result[1].split(" ", 2);
             if (result2.length != 2) {
                 throw new IllegalArgumentException("illegal key value format: " + result[1]);
             } // else {
@@ -89,7 +89,7 @@ public class MemoryKeyValueStateMachine implements StateMachine {
     }
 
     // result can be null
-    public static ByteBuffer serializeResult(String result) {
+    public static byte[] serializeResult(String result) {
         ByteBuffer buffer;
         if (result == null) {
             buffer = ByteBuffer.allocate(succ.length);
@@ -100,14 +100,14 @@ public class MemoryKeyValueStateMachine implements StateMachine {
             buffer.put(succ);
             buffer.put(resultByte);
         }
-        return buffer;
+        return buffer.array();
     }
 
     public static String deserializeResult(String result) {
         if (result.startsWith("succ ")) {
             return result.substring("succ ".length());
         } else {
-            throw new IllegalArgumentException("unknow result " + result);
+            throw new IllegalArgumentException("unknown result " + result);
         }
     }
 
@@ -126,13 +126,13 @@ public class MemoryKeyValueStateMachine implements StateMachine {
 
             if (op == Op.GET) {
                 String value = map.get(KV[0]);
-                buffer = serializeResult(value);
+                buffer = ByteBuffer.wrap(serializeResult(value));
             } else if (op == Op.SET) {
                 map.put(KV[0], KV[1]);
-                buffer = serializeResult(null);
+                buffer = ByteBuffer.wrap(serializeResult(null));
             } else {
                 map.remove(KV[0]);
-                buffer = serializeResult(null);
+                buffer = ByteBuffer.wrap(serializeResult(null));
             }
             result.add(buffer);
         }
