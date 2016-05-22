@@ -18,6 +18,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.IllegalFormatException;
 import java.util.List;
+import java.util.zip.CRC32;
 
 public class Persist {
     private static final Logger LOG = LoggerFactory.getLogger(Persist.class);
@@ -38,6 +39,11 @@ public class Persist {
 
     public Persist(String dirPath) {
         this.dirPath = dirPath;
+    }
+
+    // for UT
+    File getLogFile() {
+        return logFile;
     }
 
     public long getCurrentTerm() {
@@ -104,9 +110,11 @@ public class Persist {
     }
 
     /**
-     * Log file format is [size1][content of size1][size2][content of size2]...
+     * Log file format is [size1][content of size1][crc1][size2][content of size2][crc2]...
      * size{1..} is of size 4 since int has size 4. So current log file support
      * content size up to 2^31 - 1, since java do not support unsigned int.
+     * crc{1..} is of size 8, produced by java.util.zip.CRC32 with checksum from
+     * content.
      *
      * Index file format is [offset1][offset2][offset3]...
      * offset{1..} is of size 8 since long has size 8. So current we can save
@@ -114,6 +122,7 @@ public class Persist {
      * Offset in index file indicate offset of next entry, For example, if log
      * file has entries of size 8, 5, 3... then index file should contains
      * (8 + 4), (8 + 5 + 4 * 2), (8 + 5 + 3 + 4 * 3)...
+     * TODO add CRC32 in index file
      * */
 
     /**
@@ -140,15 +149,19 @@ public class Persist {
             logIndex.setLength(lastCommitIndex * 8);
         }
 
+        CRC32 crc32 = new CRC32();
+
         RandomAccessFile log = new RandomAccessFile(logFile, "rw");
         log.setLength(offset);
         log.seek(offset);
 
         for (int i = 0; i < ops.size(); ++i) {
-            // TODO add checksum support https://docs.oracle.com/javase/7/docs/api/java/util/zip/CRC32.html
+            crc32.reset();
             byte[] data = ops.get(i).array();
+            crc32.update(data);
             log.writeInt(data.length);
             log.write(data, 0, data.length);
+            log.writeLong(crc32.getValue());
             logIndex.writeLong(log.length());
         }
         logIndex.close();
@@ -172,11 +185,14 @@ public class Persist {
             offset = logIndex.readLong();
         }
 
+        CRC32 crc32 = new CRC32();
+
         RandomAccessFile log = new RandomAccessFile(logFile, "r");
         log.seek(offset);
 
         List<byte[]> result = new ArrayList<byte[]>(size);
         for (int i = 0; i < size; ++i) {
+            crc32.reset();
             int len = log.readInt();
             byte[] data = new byte[len];
 
@@ -186,6 +202,14 @@ public class Persist {
                     throw new IOException("log file corrupted");
                 }
                 readCount += value;
+            }
+            crc32.update(data);
+            long checksum = log.readLong();
+            if (checksum != crc32.getValue()) {
+                LOG.error("checksum mismatch, in index {}, expect {}, actual {}",
+                        startIndex + i, crc32.getValue(), checksum);
+                // do not change following msg, it is checked in UT
+                throw new IOException("log file corrupted, detected by checksum");
             }
             result.add(data);
         }

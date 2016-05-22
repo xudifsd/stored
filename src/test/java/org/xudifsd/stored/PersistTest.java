@@ -6,6 +6,7 @@ import junit.framework.TestCase;
 import junit.framework.TestSuite;
 
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -118,5 +119,18 @@ public class PersistTest extends TestCase {
             inTransformed.add(buffer.array());
         }
         Helper.assertByteArrayEqual(inTransformed, out);
+
+        // corrupt check sum
+        RandomAccessFile log = new RandomAccessFile(p.getLogFile(), "rw");
+        log.seek(in.get(0).array().length + 4 + 1);
+        int v = log.read();
+        log.seek(in.get(0).array().length + 4 + 1);
+        log.write(v + 1);
+        try {
+            p.readLogEntries(0, in.size());
+            Assert.fail();
+        } catch (IOException e) {
+            "log file corrupted, detected by checksum".equals(e.getMessage());
+        }
     }
 }
