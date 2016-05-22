@@ -12,7 +12,7 @@ import java.nio.ByteBuffer;
 import java.util.List;
 
 public class RPCHandler implements RaftProtocol.Iface {
-    private static final Logger LOG = LoggerFactory.getLogger(RaftReactor.class);
+    private static final Logger LOG = LoggerFactory.getLogger(RPCHandler.class);
 
     private RaftReactor reactor;
 
