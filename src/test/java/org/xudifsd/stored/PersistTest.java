@@ -96,7 +96,27 @@ public class PersistTest extends TestCase {
         for (ByteBuffer buffer : in) {
             inTransformed.add(buffer.array());
         }
+        Helper.assertByteArrayEqual(inTransformed, out);
 
+        // test read with offset
+        out = p.readLogEntries(12, in.size() - 12);
+        inTransformed = new ArrayList<byte[]>(in.size() - 12);
+        for (int i = 12; i < in.size(); ++i) {
+            inTransformed.add(in.get(i).array());
+        }
+        Helper.assertByteArrayEqual(inTransformed, out);
+
+        // test write with offset
+        for (int i = 6; i < in.size(); ++i) {
+            in.set(i, ByteBuffer.wrap(String.valueOf(i).getBytes()));
+        }
+        List<ByteBuffer> sub = in.subList(6, in.size());
+        p.commitLogEntries(6, sub);
+        inTransformed = new ArrayList<byte[]>(in.size());
+        out = p.readLogEntries(0, in.size());
+        for (ByteBuffer buffer : in) {
+            inTransformed.add(buffer.array());
+        }
         Helper.assertByteArrayEqual(inTransformed, out);
     }
 }
