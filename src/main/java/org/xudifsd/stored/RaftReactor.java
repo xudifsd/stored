@@ -10,6 +10,7 @@ import org.xudifsd.stored.rpc.RPCServer;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
@@ -21,6 +22,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public class RaftReactor {
     private static final Logger LOG = LoggerFactory.getLogger(RaftReactor.class);
     public static final int LEADER_HEARTBEAT_INTERVAL_MS = 1000;
+
+    private String myId;
 
     private AtomicReference<RaftReactorState> state = new AtomicReference<RaftReactorState>(RaftReactorState.FOLLOWER);
     private ConcurrentLinkedQueue<StateObserver> observers = new ConcurrentLinkedQueue<StateObserver>();
@@ -40,6 +43,29 @@ public class RaftReactor {
     private long[] nextIndex;
     private long[] matchIndex;
 
+    // TODO following five methods should be synchronized and should merged into one call
+    public long getCurrentTerm() {
+        return persist.getCurrentTerm();
+    }
+
+    public String getMyId() {
+        return myId;
+    }
+
+    public long getPrevLogIndex() {
+        // TODO implement this
+        return 0;
+    }
+
+    public long getPrevLogTerm() {
+        // TODO implement this
+        return 0;
+    }
+
+    public long getLeaderCommit() {
+        return commitIndex;
+    }
+
     // user could use this method to do leader election
     public void registerObserver(StateObserver observer) {
         observers.add(observer);
@@ -54,7 +80,7 @@ public class RaftReactor {
         }
     }
 
-    public void run(String[] args) throws Exception {
+    public void processArgs(String[] args) throws UnknownHostException {
         if (args.length < 2) {
             throw new IllegalArgumentException("must supply a path, port, and set of host:port tuples");
         }
@@ -67,15 +93,24 @@ public class RaftReactor {
             members[i - 2] = new InetSocketAddress(InetAddress.getByName(r[0]), Integer.valueOf(r[1]));
         }
 
+        myId = args[1];
+        String[] r = myId.split(":");
+        if (r.length != 2) {
+            throw new IllegalArgumentException("unknown host:port pair for myId: " + myId);
+        }
+        serverPort = Integer.valueOf(r[1]);
+    }
+
+    public void run(String[] args) throws Exception {
+        processArgs(args);
+
         stateMachine = new MemoryKeyValueStateMachine();
 
         persist = new Persist(args[0]);
         persist.restore(stateMachine);
 
-        serverPort = Integer.valueOf(args[1]);
-
         RPCServer server = new RPCServer(new RPCHandler(this), serverPort);
-        proxy = new QuorumProxy(members);
+        proxy = new QuorumProxy(this, members);
 
         this.registerObserver(new StateLogger(getState()));
         this.registerObserver(proxy);
@@ -85,7 +120,7 @@ public class RaftReactor {
                 LEADER_HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
 
         // start
-        LOG.info("should start from now on, members is {}", Arrays.asList(members));
+        LOG.info("should start from now on, myId is {}, members is {}", myId, Arrays.asList(members));
 
         server.start(1);
         Thread.sleep(3000); // without this, we can not shutdown properly
