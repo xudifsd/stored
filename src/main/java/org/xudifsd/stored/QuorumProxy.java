@@ -89,9 +89,6 @@ public class QuorumProxy implements Runnable, StateObserver {
         int successCount = 0;
 
         try {
-            // used to modify CALLBACK_CAP to tune performance
-            LOG.info("send {} of entries in batch", count);
-
             // TODO store persistently ourselves first
 
             long timeout = APPEND_ENTRIES_TIMEOUT_MS;
@@ -100,6 +97,9 @@ public class QuorumProxy implements Runnable, StateObserver {
             int waitingRespCount = clients.length;
 
             if (state.get() == RaftReactorState.LEADER) {
+                // used to modify CALLBACK_CAP to tune performance
+                LOG.info("send {} of entries in batch", count);
+
                 BlockingQueue<AppendEntriesResp> resps;
                 resps = new ArrayBlockingQueue<AppendEntriesResp>(clients.length);
 
@@ -111,7 +111,11 @@ public class QuorumProxy implements Runnable, StateObserver {
                 while (waitingRespCount > 0 && timeout > 0) {
                     try {
                         AppendEntriesResp resp = resps.poll(timeout, TimeUnit.MILLISECONDS);
-                        waitingRespCount -= 1;
+                        if (resp != null) {
+                            waitingRespCount -= 1;
+                        } else {
+                            LOG.debug("time out while poll resps");
+                        }
                         if (resp != null && resp.success) {
                             successCount += 1;
                         } else {
@@ -132,6 +136,7 @@ public class QuorumProxy implements Runnable, StateObserver {
                 // majority of clients agreed. If it's equal, we still have majority, including myself
                 result = true;
             }
+            LOG.debug("succ resp from {} clients, have {} members, result {}", successCount, clients.length, result);
             for (int i = 0; i < count; ++i) {
                 callback.add(result);
             }

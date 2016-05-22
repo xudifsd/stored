@@ -12,12 +12,16 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
+import org.xudifsd.stored.example.MemoryKeyValueStateMachine.Op;
+import static org.xudifsd.stored.example.MemoryKeyValueStateMachine.serializeOp;
 
 public class RaftReactor {
     private static final Logger LOG = LoggerFactory.getLogger(RaftReactor.class);
@@ -71,9 +75,13 @@ public class RaftReactor {
         observers.add(observer);
     }
 
-    public synchronized void changeState(long term, String votedFor, RaftReactorState state) throws IOException {
+    public synchronized void changeStateWithPersist(long term, String votedFor, RaftReactorState state) throws IOException {
         persist.writeCurrentTerm(term);
         persist.writeVotedFor(votedFor);
+        changeState(state);
+    }
+
+    public synchronized void changeState(RaftReactorState state) {
         this.state.set(state);
         for (StateObserver observer : observers) {
             observer.stateChanged(state);
@@ -124,7 +132,17 @@ public class RaftReactor {
 
         server.start(1);
         Thread.sleep(3000); // without this, we can not shutdown properly
+
         // TODO call execute here
+        List<ByteBuffer> in = new ArrayList<ByteBuffer>();
+        List<ByteBuffer> out = new ArrayList<ByteBuffer>();
+        in.add(ByteBuffer.wrap(serializeOp(Op.SET, "aaa", "bbb")));
+        if (execute(in, out)) {
+            LOG.debug("execute success");
+        } else {
+            LOG.debug("execute failed");
+        }
+
         server.stop();
         executor.shutdown();
     }
@@ -137,6 +155,7 @@ public class RaftReactor {
     public boolean execute(List<ByteBuffer> in, List<ByteBuffer> out) {
         if (state.get() == RaftReactorState.LEADER) {
             boolean result = proxy.commit(in);
+            LOG.debug("proxy commit returns {}", result);
             if (result) {
                 // we do not persist in here, because we store it in proxy
 
@@ -148,6 +167,7 @@ public class RaftReactor {
             }
             return result;
         } else {
+            LOG.warn("execute failed because this server is not leader");
             return false;
         }
     }
