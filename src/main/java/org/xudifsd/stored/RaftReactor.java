@@ -15,6 +15,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -26,6 +27,7 @@ import static org.xudifsd.stored.example.MemoryKeyValueStateMachine.serializeOp;
 public class RaftReactor {
     private static final Logger LOG = LoggerFactory.getLogger(RaftReactor.class);
     public static final int LEADER_HEARTBEAT_INTERVAL_MS = 1000;
+    public static final long ELECTION_TIMEOUT_MS = 1000;
 
     private String myId;
 
@@ -38,6 +40,8 @@ public class RaftReactor {
     private StateMachine stateMachine;
 
     private Persist persist;
+
+    private long lastValidAppendTime = 0;
 
     // volatile state on all server
     private long commitIndex = 0;
@@ -70,6 +74,14 @@ public class RaftReactor {
         return commitIndex;
     }
 
+    public long getLastValidAppendTime() {
+        return lastValidAppendTime;
+    }
+
+    public void setLastValidAppendTime(long lastValidAppendTime) {
+        this.lastValidAppendTime = lastValidAppendTime;
+    }
+
     // user could use this method to do leader election
     public void registerObserver(StateObserver observer) {
         observers.add(observer);
@@ -79,6 +91,12 @@ public class RaftReactor {
         persist.writeCurrentTerm(term);
         persist.writeVotedFor(votedFor);
         changeState(state);
+    }
+
+    public synchronized long startNewElection() throws IOException {
+        long nextTerm = getCurrentTerm() + 1;
+        changeStateWithPersist(nextTerm, getMyId(), RaftReactorState.CANDIDATE);
+        return nextTerm;
     }
 
     public synchronized void changeState(RaftReactorState state) {
@@ -125,9 +143,16 @@ public class RaftReactor {
         this.registerObserver(new StateLogger(getState()));
         this.registerObserver(proxy);
 
-        executor = new ScheduledThreadPoolExecutor(1);
+        executor = new ScheduledThreadPoolExecutor(3);
+        ElectionStarter electionStarter = new ElectionStarter(this, executor);
         executor.scheduleAtFixedRate(proxy, LEADER_HEARTBEAT_INTERVAL_MS,
                 LEADER_HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+
+        // implement random election timeout, section 5.2 in Raft paper
+        long random = new Random().nextLong() % 300;
+
+        executor.scheduleAtFixedRate(electionStarter, ELECTION_TIMEOUT_MS + random,
+                ELECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
         // start
         LOG.info("should start from now on, myId is {}, members is {}", myId, Arrays.asList(members));
