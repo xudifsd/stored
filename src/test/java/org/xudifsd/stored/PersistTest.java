@@ -4,7 +4,10 @@ import junit.framework.Assert;
 import junit.framework.Test;
 import junit.framework.TestCase;
 import junit.framework.TestSuite;
+import org.xudifsd.stored.utils.Tuple;
+import org.xudifsd.stored.utils.Utility;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
@@ -14,16 +17,33 @@ import java.util.List;
 public class PersistTest extends TestCase {
 
     private static class Helper {
-        public static void assertByteArrayEqual(List<byte[]> a, List<byte[]> b) {
+        public static void assertByteArrayEqual(List<ByteBuffer> a, List<byte[]> b) {
             Assert.assertEquals(a.size(), b.size());
             for (int i = 0; i < a.size(); ++i) {
-                byte[] aa = a.get(i);
+                byte[] aa = a.get(i).array();
                 byte[] bb = b.get(i);
                 Assert.assertEquals(aa.length, bb.length);
                 for (int j = 0; j < aa.length; ++j) {
                     Assert.assertEquals(aa[j], bb[j]);
                 }
             }
+        }
+
+        public static List<ByteBuffer> addTerms(List<ByteBuffer> entriesWithoutTerm) {
+            byte[] term = Utility.longToBytes(1);
+            List<ByteBuffer> result = new ArrayList<ByteBuffer>(entriesWithoutTerm.size());
+            for (ByteBuffer buffer : entriesWithoutTerm) {
+                byte[] buf = buffer.array();
+                byte[] entry = new byte[term.length + buf.length];
+                for (int i = 0; i < term.length; ++i) {
+                    entry[i] = term[i];
+                }
+                for (int i = 0; i < buf.length; ++i) {
+                    entry[term.length + i] = buf[i];
+                }
+                result.add(ByteBuffer.wrap(entry));
+            }
+            return result;
         }
     }
 
@@ -82,49 +102,46 @@ public class PersistTest extends TestCase {
 
         Persist p = new Persist(System.getProperty("java.io.tmpdir"));
 
-        p.restore(new StateMachine() {
-            @Override
-            public List<ByteBuffer> apply(List<ByteBuffer> entries) {
-                return new ArrayList<ByteBuffer>(entries.size());
-            }
-        });
+        p.init();
 
-        p.commitLogEntries(0, in);
+        List<ByteBuffer> inWithTerms = Helper.addTerms(in);
+        p.commitLogEntries(0, inWithTerms);
 
-        List<byte[]> out = p.readLogEntries(0, in.size());
-        List<byte[]> inTransformed = new ArrayList<byte[]>(in.size());
+        Tuple<List<byte[]>, List<Long>> result = p.readLogEntries(0, in.size());
+        List<byte[]> out = result.t1;
 
-        for (ByteBuffer buffer : in) {
-            inTransformed.add(buffer.array());
-        }
-        Helper.assertByteArrayEqual(inTransformed, out);
+        Helper.assertByteArrayEqual(in, out);
 
         // test read with offset
-        out = p.readLogEntries(12, in.size() - 12);
-        inTransformed = new ArrayList<byte[]>(in.size() - 12);
-        for (int i = 12; i < in.size(); ++i) {
-            inTransformed.add(in.get(i).array());
-        }
-        Helper.assertByteArrayEqual(inTransformed, out);
+        result = p.readLogEntries(12, in.size() - 12);
+        out = result.t1;
+        Helper.assertByteArrayEqual(in.subList(12, in.size()), out);
 
         // test write with offset
-        for (int i = 6; i < in.size(); ++i) {
-            in.set(i, ByteBuffer.wrap(String.valueOf(i).getBytes()));
+        for (int i = 6; i < 9; ++i) {
+            if (i - 6 < 3) {
+                in.set(i, ByteBuffer.wrap(String.valueOf(i).getBytes()));
+            }
         }
-        List<ByteBuffer> sub = in.subList(6, in.size());
-        p.commitLogEntries(6, sub);
-        inTransformed = new ArrayList<byte[]>(in.size());
-        out = p.readLogEntries(0, in.size());
-        for (ByteBuffer buffer : in) {
-            inTransformed.add(buffer.array());
+        while (in.size() > 9) {
+            in.remove(9);
         }
-        Helper.assertByteArrayEqual(inTransformed, out);
+        List<ByteBuffer> subWithTerms = Helper.addTerms(in.subList(6, in.size()));
+        p.commitLogEntries(6, subWithTerms);
+        try {
+            // test shorter log entries would truncate log file
+            p.readLogEntries(0, in.size() + 1);
+            Assert.fail();
+        } catch (EOFException e) {}
+        result = p.readLogEntries(0, in.size());
+        out = result.t1;
+        Helper.assertByteArrayEqual(in, out);
 
         // corrupt check sum
         RandomAccessFile log = new RandomAccessFile(p.getLogFile(), "rw");
-        log.seek(in.get(0).array().length + 4 + 1);
+        log.seek(Integer.BYTES + Long.BYTES + in.get(0).array().length + 1);
         int v = log.read();
-        log.seek(in.get(0).array().length + 4 + 1);
+        log.seek(Integer.BYTES + Long.BYTES + in.get(0).array().length + 1);
         log.write(v + 1);
         try {
             p.readLogEntries(0, in.size());

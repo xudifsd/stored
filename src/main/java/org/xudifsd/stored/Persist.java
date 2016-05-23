@@ -8,7 +8,6 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -16,9 +15,11 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.IllegalFormatException;
 import java.util.List;
 import java.util.zip.CRC32;
+
+import org.xudifsd.stored.utils.Tuple;
+import org.xudifsd.stored.utils.Utility;
 
 public class Persist {
     private static final Logger LOG = LoggerFactory.getLogger(Persist.class);
@@ -74,13 +75,14 @@ public class Persist {
             throw new RuntimeException("votedFor could not contains newline");
         }
 
+        // File writer will truncate file on open if not specify append mode, this is expected
         FileWriter writer = new FileWriter(votedForFile);
         writer.write(votedFor);
         writer.close();
     }
 
     // should call this method before any other
-    public void restore(StateMachine stateMachine) throws IOException {
+    public void init() throws IOException {
         File dir = new File(dirPath);
         if (!dir.isDirectory()) {
             throw new RuntimeException(dirPath + " is not a directory");
@@ -106,15 +108,16 @@ public class Persist {
 
         logFile = new File(dirPath + File.separator + logFileName);
         logIndexFile = new File(dirPath + File.separator + logIndexFileName);
-        // TODO apply persisted log to stateMachine
     }
 
     /**
-     * Log file format is [size1][content of size1][crc1][size2][content of size2][crc2]...
+     * Log file format is
+     * [size1][term1][content of size1][crc1][size2][term2][content of size2][crc2]...
      * size{1..} is of size 4 since int has size 4. So current log file support
      * content size up to 2^31 - 1, since java do not support unsigned int.
+     * term{1..} is of size 8 since long has size 8
      * crc{1..} is of size 8, produced by java.util.zip.CRC32 with checksum from
-     * content.
+     * term & content.
      *
      * Index file format is [offset1][offset2][offset3]...
      * offset{1..} is of size 8 since long has size 8. So current we can save
@@ -131,7 +134,7 @@ public class Persist {
      * committed. So, if we want to commit second entry, we should pass 1 as
      * lastCommitIndex
      * */
-    public void commitLogEntries(long lastCommitIndex, List<ByteBuffer> ops)
+    public void commitLogEntries(long lastCommitIndex, List<ByteBuffer> entriesWithTerm)
             throws IOException {
         long offset = 0;
         if (lastCommitIndex != 0 &&
@@ -155,11 +158,11 @@ public class Persist {
         log.setLength(offset);
         log.seek(offset);
 
-        for (int i = 0; i < ops.size(); ++i) {
+        for (int i = 0; i < entriesWithTerm.size(); ++i) {
             crc32.reset();
-            byte[] data = ops.get(i).array();
+            byte[] data = entriesWithTerm.get(i).array();
             crc32.update(data);
-            log.writeInt(data.length);
+            log.writeInt(data.length - Long.BYTES);
             log.write(data, 0, data.length);
             log.writeLong(crc32.getValue());
             logIndex.writeLong(log.length());
@@ -169,7 +172,7 @@ public class Persist {
     }
 
     // read size of entry from index startIndex
-    public List<byte[]> readLogEntries(long startIndex, int size) throws IOException {
+    public Tuple<List<byte[]>, List<Long>> readLogEntries(long startIndex, int size) throws IOException {
         long offset = 0;
         if (startIndex != 0 &&
                 (!logIndexFile.exists() || logIndexFile.length() < startIndex * 8)) {
@@ -190,10 +193,13 @@ public class Persist {
         RandomAccessFile log = new RandomAccessFile(logFile, "r");
         log.seek(offset);
 
-        List<byte[]> result = new ArrayList<byte[]>(size);
+        List<byte[]> ops = new ArrayList<byte[]>(size);
+        List<Long> terms = new ArrayList<Long>(size);
+
         for (int i = 0; i < size; ++i) {
             crc32.reset();
             int len = log.readInt();
+            long term = log.readLong();
             byte[] data = new byte[len];
 
             for (int readCount = 0; readCount < len;) {
@@ -203,6 +209,7 @@ public class Persist {
                 }
                 readCount += value;
             }
+            crc32.update(Utility.longToBytes(term));
             crc32.update(data);
             long checksum = log.readLong();
             if (checksum != crc32.getValue()) {
@@ -211,9 +218,10 @@ public class Persist {
                 // do not change following msg, it is checked in UT
                 throw new IOException("log file corrupted, detected by checksum");
             }
-            result.add(data);
+            ops.add(data);
+            terms.add(term);
         }
         log.close();
-        return result;
+        return new Tuple<List<byte[]>, List<Long>>(ops, terms);
     }
 }

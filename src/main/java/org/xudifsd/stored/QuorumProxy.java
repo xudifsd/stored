@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xudifsd.stored.rpc.AppendEntriesResp;
 import org.xudifsd.stored.rpc.RPCClient;
+import org.xudifsd.stored.utils.Utility;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -28,6 +29,7 @@ public class QuorumProxy implements Runnable, StateObserver {
 
     private AtomicReference<RaftReactorState> state;
 
+    // entries should contains terms already
     private List<ByteBuffer> entries;
     private int count = 0;
     private BlockingQueue<Boolean> callback;
@@ -49,8 +51,20 @@ public class QuorumProxy implements Runnable, StateObserver {
     * Caller will block on this method, return true on more than
     * half of quorum stored entries persistently
     */
-    public boolean commit(List<ByteBuffer> entries) {
+    public boolean commit(List<ByteBuffer> entriesWithoutTerm, long currentTerm) {
         BlockingQueue<Boolean> callback;
+        List<ByteBuffer> entries = new ArrayList<ByteBuffer>(entriesWithoutTerm.size());
+        for (int i = 0; i < entriesWithoutTerm.size(); ++i) {
+            ByteBuffer entry = entriesWithoutTerm.get(i);
+            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES + entries.size());
+            buffer.putLong(currentTerm);
+            buffer.put(entry);
+
+            buffer.reset();
+            entry.reset();
+
+            entries.add(buffer);
+        }
         synchronized (this) {
             count += 1;
             /*

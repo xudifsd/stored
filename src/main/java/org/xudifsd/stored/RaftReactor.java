@@ -47,13 +47,13 @@ public class RaftReactor {
     private long[] nextIndex;
     private long[] matchIndex;
 
+    public String getMyId() {
+        return myId;
+    }
+
     // TODO following five methods should be synchronized and should merged into one call
     public long getCurrentTerm() {
         return persist.getCurrentTerm();
-    }
-
-    public String getMyId() {
-        return myId;
     }
 
     public long getPrevLogIndex() {
@@ -115,7 +115,9 @@ public class RaftReactor {
         stateMachine = new MemoryKeyValueStateMachine();
 
         persist = new Persist(args[0]);
-        persist.restore(stateMachine);
+        persist.init();
+
+        // TODO apply persisted log to stateMachine
 
         RPCServer server = new RPCServer(new RPCHandler(this), serverPort);
         proxy = new QuorumProxy(this, members);
@@ -154,7 +156,7 @@ public class RaftReactor {
     * */
     public boolean execute(List<ByteBuffer> in, List<ByteBuffer> out) {
         if (state.get() == RaftReactorState.LEADER) {
-            boolean result = proxy.commit(in);
+            boolean result = proxy.commit(in, getCurrentTerm());
             LOG.debug("proxy commit returns {}", result);
             if (result) {
                 // we do not persist in here, because we store it in proxy
