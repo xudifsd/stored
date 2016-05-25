@@ -11,6 +11,8 @@ import org.xudifsd.stored.thrift.RequestVoteResp;
 import java.nio.ByteBuffer;
 import java.util.List;
 
+// TODO save logs issued by appendEntries call in certain term, because
+// leader will not send duplicated log entries if we refused previous one.
 public class RPCHandler implements RaftProtocol.Iface {
     private static final Logger LOG = LoggerFactory.getLogger(RPCHandler.class);
 

@@ -88,6 +88,7 @@ public class RaftReactor {
     }
 
     public synchronized void changeStateWithPersist(long term, String votedFor, RaftReactorState state) throws IOException {
+        // TODO should check term with current term to avoid changing into old term in multi-thread
         persist.writeCurrentTerm(term);
         persist.writeVotedFor(votedFor);
         changeState(state);
@@ -186,6 +187,7 @@ public class RaftReactor {
             if (result) {
                 // we do not persist in here, because we store it in proxy
 
+                // TODO make sure commands are executed in order
                 // FIXME what if stateMachine throw exception?
                 List<ByteBuffer> stateMachineOut = stateMachine.apply(in);
                 if (out != null) {

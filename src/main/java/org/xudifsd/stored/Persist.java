@@ -38,6 +38,14 @@ public class Persist {
     private File logFile;
     private File logIndexFile;
 
+    private long lastLogIndex = 0;
+    private long lastLogTerm = 0;
+
+    // will called by ElectionStarter and passed to Ballot
+    public Tuple<Long, Long> getLastLogMeta() {
+        return new Tuple<Long, Long>(lastLogIndex, lastLogTerm);
+    }
+
     public Persist(String dirPath) {
         this.dirPath = dirPath;
     }
@@ -128,13 +136,23 @@ public class Persist {
      * TODO add CRC32 in index file
      * */
 
+    private long parseTerm(byte[] data) {
+        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+        for (int i = 0; i < Long.BYTES; ++i) {
+            buffer.put(data[i]);
+        }
+        buffer.flip();//need flip
+        return buffer.getLong();
+    }
+
     /**
      * This method would overwrite all entries committed after lastCommitIndex.
      * lastCommitIndex should be index of highest log entry known to be
-     * committed. So, if we want to commit second entry, we should pass 1 as
-     * lastCommitIndex
+     * committed. So, if we want to commit the 2nd entry, we should pass 1 as
+     * lastCommitIndex.
+     * Return lastLogIndex & lastLogTerm.
      * */
-    public void commitLogEntries(long lastCommitIndex, List<ByteBuffer> entriesWithTerm)
+    public Tuple<Long, Long> commitLogEntries(long lastCommitIndex, List<ByteBuffer> entriesWithTerm)
             throws IOException {
         long offset = 0;
         if (lastCommitIndex != 0 &&
@@ -166,9 +184,12 @@ public class Persist {
             log.write(data, 0, data.length);
             log.writeLong(crc32.getValue());
             logIndex.writeLong(log.length());
+            lastLogIndex = lastCommitIndex + i;
+            lastLogTerm = parseTerm(data);
         }
         logIndex.close();
         log.close();
+        return new Tuple<Long, Long>(lastLogIndex, lastLogTerm);
     }
 
     // read size of entry from index startIndex

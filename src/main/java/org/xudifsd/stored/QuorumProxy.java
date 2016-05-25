@@ -14,9 +14,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * This thread is used in leader mode to persist newly created log and
+ * broadcast AppendEntries to quorum, it only send logs start from last
+ * AppendEntries call, and if it found any straggler it will start another
+ * thread to handle the straggler.
+ * */
 public class QuorumProxy implements Runnable, StateObserver {
     private static final Logger LOG = LoggerFactory.getLogger(QuorumProxy.class);
 
@@ -26,6 +33,7 @@ public class QuorumProxy implements Runnable, StateObserver {
     private final RaftReactor reactor;
     private final InetSocketAddress[] members;
     private final RPCClient[] clients;
+    private final Future[] spurFuture; // will not start spur when previous spur is not done
 
     private AtomicReference<RaftReactorState> state;
 
@@ -45,6 +53,7 @@ public class QuorumProxy implements Runnable, StateObserver {
         for (int i = 0; i < members.length; ++i) {
             this.clients[i] = new RPCClient(members[i]);
         }
+        this.spurFuture = new Future[members.length];
     }
 
     /*

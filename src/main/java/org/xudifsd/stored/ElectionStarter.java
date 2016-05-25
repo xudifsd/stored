@@ -8,7 +8,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
- * Scheduled periodically to see if we need reelection
+ * Scheduled periodically to see if we need reelection, start Ballot to
+ * do actual broadcast, cancel existing one if exist.
  * */
 public class ElectionStarter implements Runnable {
     private static final Logger LOG = LoggerFactory.getLogger(ElectionStarter.class);
