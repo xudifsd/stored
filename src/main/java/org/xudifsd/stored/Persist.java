@@ -136,15 +136,6 @@ public class Persist {
      * TODO add CRC32 in index file
      * */
 
-    private long parseTerm(byte[] data) {
-        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-        for (int i = 0; i < Long.BYTES; ++i) {
-            buffer.put(data[i]);
-        }
-        buffer.flip();//need flip
-        return buffer.getLong();
-    }
-
     /**
      * This method would overwrite all entries committed after lastCommitIndex.
      * lastCommitIndex should be index of highest log entry known to be
@@ -185,7 +176,7 @@ public class Persist {
             log.writeLong(crc32.getValue());
             logIndex.writeLong(log.length());
             lastLogIndex = lastCommitIndex + i;
-            lastLogTerm = parseTerm(data);
+            lastLogTerm = Utility.parseTerm(data);
         }
         logIndex.close();
         log.close();

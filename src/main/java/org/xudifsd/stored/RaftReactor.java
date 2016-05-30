@@ -17,6 +17,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -182,19 +183,22 @@ public class RaftReactor {
     * */
     public boolean execute(List<ByteBuffer> in, List<ByteBuffer> out) {
         if (state.get() == RaftReactorState.LEADER) {
-            boolean result = proxy.commit(in, getCurrentTerm());
-            LOG.debug("proxy commit returns {}", result);
-            if (result) {
-                // we do not persist in here, because we store it in proxy
-
-                // TODO make sure commands are executed in order
-                // FIXME what if stateMachine throw exception?
-                List<ByteBuffer> stateMachineOut = stateMachine.apply(in);
-                if (out != null) {
-                    out.addAll(stateMachineOut);
-                }
+            List<ByteBuffer> result = null;
+            try {
+                result = proxy.commit(in, getCurrentTerm()).get();
+            } catch (InterruptedException e) {
+                LOG.warn("execute failed", e);
+            } catch (ExecutionException e) {
+                LOG.warn("execute failed", e);
             }
-            return result;
+            LOG.debug("proxy commit returns {}", result);
+            if (result != null) {
+                // we do not persist in here, because we store it in proxy
+                out.addAll(result);
+                return true;
+            } else {
+                return false;
+            }
         } else {
             LOG.warn("execute failed because this server is not leader");
             return false;

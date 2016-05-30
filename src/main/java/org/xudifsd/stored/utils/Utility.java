@@ -8,4 +8,13 @@ public class Utility {
         buffer.putLong(x);
         return buffer.array();
     }
+
+    public static long parseTerm(byte[] data) {
+        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+        for (int i = 0; i < Long.BYTES; ++i) {
+            buffer.put(data[i]);
+        }
+        buffer.flip();//need flip
+        return buffer.getLong();
+    }
 }

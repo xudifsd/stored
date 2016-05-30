@@ -14,8 +14,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -60,8 +63,8 @@ public class QuorumProxy implements Runnable, StateObserver {
     * Caller will block on this method, return true on more than
     * half of quorum stored entries persistently
     */
-    public boolean commit(List<ByteBuffer> entriesWithoutTerm, long currentTerm) {
-        BlockingQueue<Boolean> callback;
+    public Future<List<ByteBuffer>> commit(List<ByteBuffer> entriesWithoutTerm, long currentTerm) {
+        final BlockingQueue<Boolean> callback;
         List<ByteBuffer> entries = new ArrayList<ByteBuffer>(entriesWithoutTerm.size());
         for (int i = 0; i < entriesWithoutTerm.size(); ++i) {
             ByteBuffer entry = entriesWithoutTerm.get(i);
@@ -83,12 +86,53 @@ public class QuorumProxy implements Runnable, StateObserver {
             this.entries.addAll(entries);
             callback = this.callback;
         }
-        try {
-            return callback.take();
-        } catch (InterruptedException e) {
-            LOG.error("interrupted while take callback", e);
-            return false;
-        }
+        // TODO make return value better
+        Future<List<ByteBuffer>> future = new Future<List<ByteBuffer>>() {
+            private AtomicBoolean isDone = new AtomicBoolean(false);
+            private AtomicReference<List<ByteBuffer>> result = new AtomicReference<List<ByteBuffer>>();
+            private AtomicReference<Exception> ex = new AtomicReference<Exception>();
+
+            public void setEx(Exception ex) {
+                this.ex.set(ex);
+            }
+
+            public void setResult(List<ByteBuffer> result) {
+                this.result.set(result);
+            }
+
+            @Override
+            public boolean cancel(boolean mayInterruptIfRunning) {
+                return false;
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return false;
+            }
+
+            @Override
+            public boolean isDone() {
+                return isDone.get();
+            }
+
+            @Override
+            public List<ByteBuffer> get() throws InterruptedException, ExecutionException {
+                try {
+                    return get(Long.MAX_VALUE, TimeUnit.DAYS);
+                } catch (TimeoutException e) {
+                    LOG.info("timeout in get() which is impossible", e);
+                }
+                return null;
+            }
+
+            @Override
+            public List<ByteBuffer> get(long timeout, TimeUnit unit)
+                    throws InterruptedException, ExecutionException, TimeoutException {
+                // TODO implement this
+                return result.get();
+            }
+        };
+        return future;
     }
 
     @Override
@@ -112,7 +156,7 @@ public class QuorumProxy implements Runnable, StateObserver {
         int successCount = 0;
 
         try {
-            // TODO store persistently ourselves first
+            // TODO store persistently here, could do it simultaneously with AppendEntries to avoid slow leader
 
             long timeout = APPEND_ENTRIES_TIMEOUT_MS;
 
@@ -163,6 +207,7 @@ public class QuorumProxy implements Runnable, StateObserver {
             for (int i = 0; i < count; ++i) {
                 callback.add(result);
             }
+            // TODO apply to state machine here, and return result
         }
     }
 
