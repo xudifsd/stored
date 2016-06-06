@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -59,6 +60,61 @@ public class QuorumProxy implements Runnable, StateObserver {
         this.spurFuture = new Future[members.length];
     }
 
+    public static final class ProxyFuture implements Future<List<ByteBuffer>> {
+        private final CountDownLatch latch = new CountDownLatch(1);
+        private List<ByteBuffer> result = null;
+        private Exception ex = null;
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+            return false;
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false;
+        }
+
+        @Override
+        public boolean isDone() {
+            return latch.getCount() == 0;
+        }
+
+        @Override
+        public List<ByteBuffer> get() throws InterruptedException, ExecutionException {
+            latch.await();
+            if (ex != null) {
+                throw new ExecutionException(ex);
+            } else {
+                return result;
+            }
+        }
+
+        @Override
+        public List<ByteBuffer> get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
+            if (latch.await(timeout, unit)) {
+                if (ex != null) {
+                    throw new ExecutionException(ex);
+                } else {
+                    return result;
+                }
+            } else {
+                throw new TimeoutException();
+            }
+        }
+
+        // runner should call either setResult or setEx, but not both.
+        public void setResult(List<ByteBuffer> result) {
+            this.result = result;
+            latch.countDown();
+        }
+
+        public void setEx(Exception ex) {
+            this.ex = ex;
+            latch.countDown();
+        }
+    }
+
     /*
     * Caller will block on this method, return true on more than
     * half of quorum stored entries persistently
@@ -86,52 +142,8 @@ public class QuorumProxy implements Runnable, StateObserver {
             this.entries.addAll(entries);
             callback = this.callback;
         }
-        // TODO make return value better
-        Future<List<ByteBuffer>> future = new Future<List<ByteBuffer>>() {
-            private AtomicBoolean isDone = new AtomicBoolean(false);
-            private AtomicReference<List<ByteBuffer>> result = new AtomicReference<List<ByteBuffer>>();
-            private AtomicReference<Exception> ex = new AtomicReference<Exception>();
-
-            public void setEx(Exception ex) {
-                this.ex.set(ex);
-            }
-
-            public void setResult(List<ByteBuffer> result) {
-                this.result.set(result);
-            }
-
-            @Override
-            public boolean cancel(boolean mayInterruptIfRunning) {
-                return false;
-            }
-
-            @Override
-            public boolean isCancelled() {
-                return false;
-            }
-
-            @Override
-            public boolean isDone() {
-                return isDone.get();
-            }
-
-            @Override
-            public List<ByteBuffer> get() throws InterruptedException, ExecutionException {
-                try {
-                    return get(Long.MAX_VALUE, TimeUnit.DAYS);
-                } catch (TimeoutException e) {
-                    LOG.info("timeout in get() which is impossible", e);
-                }
-                return null;
-            }
-
-            @Override
-            public List<ByteBuffer> get(long timeout, TimeUnit unit)
-                    throws InterruptedException, ExecutionException, TimeoutException {
-                // TODO implement this
-                return result.get();
-            }
-        };
+        // TODO refactor internal structure of this.entries, this.count, this.callback to use future
+        Future<List<ByteBuffer>> future = new ProxyFuture();
         return future;
     }
 
