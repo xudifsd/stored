@@ -65,8 +65,12 @@ public class Persist {
 
     public void writeCurrentTerm(long currentTerm) throws IOException {
         this.currentTerm = currentTerm;
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(currentTermFile));
+        FileOutputStream fileStream = new FileOutputStream(currentTermFile);
+        DataOutputStream out = new DataOutputStream(fileStream);
         out.writeLong(currentTerm);
+        out.flush();
+        fileStream.flush();
+        fileStream.getFD().sync();
         out.close();
     }
 
@@ -84,9 +88,12 @@ public class Persist {
         }
 
         // File writer will truncate file on open if not specify append mode, this is expected
-        FileWriter writer = new FileWriter(votedForFile);
+        FileOutputStream f = new FileOutputStream(votedFor);
+        FileWriter writer = new FileWriter(f.getFD());
         writer.write(votedFor);
         writer.close();
+        f.getFD().sync();
+        f.close();
     }
 
     // should call this method before any other
@@ -178,7 +185,9 @@ public class Persist {
             lastLogIndex = lastCommitIndex + i;
             lastLogTerm = Utility.parseTerm(data);
         }
+        logIndex.getFD().sync();
         logIndex.close();
+        log.getFD().sync();
         log.close();
         return new Tuple<Long, Long>(lastLogIndex, lastLogTerm);
     }
